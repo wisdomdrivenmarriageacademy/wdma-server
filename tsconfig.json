@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    /* File Layout */
+    "rootDir": "./src", // <-- adjust to your source folder
+    "outDir": "./dist",
+    /* Environment Settings */
+    "module": "commonjs", // ✅ CommonJS for Node
+    "target": "ES2020", // Modern JS features
+    "lib": ["ESNext"],
+    "types": ["node"], // Node types
+    "esModuleInterop": true, // ✅ allows `import dotenv from "dotenv"`
+
+    /* Output Options */
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    /* Type Checking */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+
+    /* Build Performance */
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+
+    /* Optional but recommended */
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules"]
+}
