@@ -1,5 +1,5 @@
 // src/index.ts
-import dotenv from "dotenv";
+import "dotenv/config";
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import mongoose from "mongoose";
@@ -11,7 +11,6 @@ import studentViewOrderRoutes from "./routes/student-routes/order-routes";
 import studentCoursesRoutes from "./routes/student-routes/student-courses-routes";
 import studentCourseProgressRoutes from "./routes/student-routes/course-progress-routes";
 import bodyParser from "body-parser"
-dotenv.config();
 
 const app = express();
 const PORT: number = parseInt(process.env.PORT || "5000", 10);

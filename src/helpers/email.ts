@@ -20,7 +20,8 @@ export async function sendEmail({
   text,
   from,
 }: SendEmailParams) {
-  const fromAddress = from || "no-reply@yourapp.dev";
+  const fromAddress =
+    from || process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
 
   // Build the email options object, only including defined properties
   const emailOptions: any = {

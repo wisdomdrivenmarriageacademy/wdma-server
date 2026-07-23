@@ -2,12 +2,13 @@
 import { Router } from "express";
 import {
   createOrder,
-  capturePaymentAndFinalizeOrder,
+  verifyPaymentAndFinalizeOrder,
 } from "../../controllers/student-controller/order-controller";
+import authenticate from "../../middleware/auth-middleware";
 
 const router = Router();
 
-router.post("/create", createOrder);
-router.post("/capture", capturePaymentAndFinalizeOrder);
+router.post("/create", authenticate, createOrder);
+router.post("/verify", authenticate, verifyPaymentAndFinalizeOrder);
 
 export default router;

@@ -12,8 +12,7 @@ export interface IOrder extends Document {
   paymentMethod: string;
   paymentStatus: string;
   orderDate: Date;
-  paymentId: string;
-  payerId: string;
+  paymentReference: string;
   instructorId: string;
   instructorName: string;
   courseImage: string;
@@ -33,8 +32,12 @@ const OrderSchema = new Schema<IOrder>({
   paymentMethod: { type: String, required: true },
   paymentStatus: { type: String, required: true },
   orderDate: { type: Date, default: Date.now },
-  paymentId: { type: String, required: true },
-  payerId: { type: String, required: true },
+  paymentReference: {
+    type: String,
+    required: true,
+    unique: true,
+    sparse: true,
+  },
   instructorId: { type: String, required: true },
   instructorName: { type: String, required: true },
   courseImage: { type: String, required: true },

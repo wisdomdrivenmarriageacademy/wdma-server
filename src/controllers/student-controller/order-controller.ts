@@ -1,180 +1,127 @@
-// src/controllers/payment/paypal-order-controller.ts
+import { randomUUID } from "node:crypto";
 import { Request, Response } from "express";
-import paypal from "../../helpers/paypal";
-import Order, { IOrder } from "../../models/Order";
+import { JwtPayload } from "jsonwebtoken";
+import {
+  initializePaystackTransaction,
+  toSubunit,
+  verifyPaystackTransaction,
+} from "../../helpers/paystack";
+import Order from "../../models/Order";
 import Course from "../../models/Course";
 import StudentCourses from "../../models/StudentCourses";
 
-interface CreateOrderBody {
-  userId: string;
+type AuthenticatedUser = JwtPayload & {
+  _id: string;
   userName: string;
   userEmail: string;
-  orderStatus: string;
-  paymentMethod: string;
-  paymentStatus: string;
-  orderDate: string;
-  paymentId?: string;
-  payerId?: string;
-  instructorId: string;
-  instructorName: string;
-  courseImage: string;
-  courseTitle: string;
-  courseId: string;
-  coursePricing: number;
-}
+};
 
-interface CapturePaymentBody {
-  paymentId: string;
-  payerId: string;
-  orderId: string;
-}
-
-/**
- * Create PayPal payment and initialize order
- */
 export const createOrder = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const {
-      userId,
-      userName,
-      userEmail,
-      orderStatus,
-      paymentMethod,
-      paymentStatus,
-      orderDate,
-      paymentId,
-      payerId,
-      instructorId,
-      instructorName,
-      courseImage,
-      courseTitle,
-      courseId,
-      coursePricing,
-    } = req.body as CreateOrderBody;
+    const { courseId } = req.body as { courseId?: string };
+    const user = req.user as AuthenticatedUser | undefined;
+    const course = courseId ? await Course.findById(courseId) : null;
 
-    const createPaymentJson = {
-      intent: "sale",
-      payer: { payment_method: "paypal" },
-      redirect_urls: {
-        return_url: `${process.env.CLIENT_URL}/payment-return`,
-        cancel_url: `${process.env.CLIENT_URL}/payment-cancel`,
-      },
-      transactions: [
-        {
-          item_list: {
-            items: [
-              {
-                name: courseTitle,
-                sku: courseId,
-                price: coursePricing.toFixed(2),
-                currency: "USD",
-                quantity: 1,
-              },
-            ],
-          },
-          amount: {
-            currency: "USD",
-            total: coursePricing.toFixed(2),
-          },
-          description: courseTitle,
+    if (!user?._id || !user.userEmail) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+    if (!course) {
+      res.status(404).json({ success: false, message: "Course not found" });
+      return;
+    }
+
+    const currency = process.env.PAYSTACK_CURRENCY || "NGN";
+    const paymentReference = `wdma-${randomUUID()}`;
+    const order = await Order.create({
+      userId: user._id,
+      userName: user.userName,
+      userEmail: user.userEmail,
+      orderStatus: "pending",
+      paymentMethod: "paystack",
+      paymentStatus: "initiated",
+      orderDate: new Date(),
+      paymentReference,
+      instructorId: course.instructorId,
+      instructorName: course.instructorName,
+      courseImage: course.image,
+      courseTitle: course.title,
+      courseId: course.id,
+      coursePricing: course.pricing,
+    });
+
+    try {
+      const transaction = await initializePaystackTransaction({
+        email: user.userEmail,
+        amount: toSubunit(course.pricing),
+        reference: paymentReference,
+        callbackUrl: `${process.env.CLIENT_URL}/payment-return`,
+        currency,
+      });
+
+      res.status(201).json({
+        success: true,
+        data: {
+          authorizationUrl: transaction.authorization_url,
         },
-      ],
-    };
-
-    paypal.payment.create(
-      createPaymentJson,
-      async (error: any, paymentInfo: any) => {
-        if (error) {
-          console.error(error);
-          res.status(500).json({
-            success: false,
-            message: "Error while creating PayPal payment!",
-          });
-          return;
-        }
-
-        const newOrder = new Order({
-          userId,
-          userName,
-          userEmail,
-          orderStatus,
-          paymentMethod,
-          paymentStatus,
-          orderDate,
-          paymentId,
-          payerId,
-          instructorId,
-          instructorName,
-          courseImage,
-          courseTitle,
-          courseId,
-          coursePricing,
-        });
-
-        await newOrder.save();
-
-        const approvalLink = paymentInfo.links.find(
-          (link: any) => link.rel === "approval_url"
-        )?.href;
-
-        if (!approvalLink) {
-          res.status(500).json({
-            success: false,
-            message: "Approval URL not returned by PayPal.",
-          });
-          return;
-        }
-
-        res.status(201).json({
-          success: true,
-          data: {
-            approveUrl: approvalLink,
-            orderId: newOrder._id,
-          },
-        });
-      }
-    );
-  } catch (err) {
-    console.error(err);
+      });
+    } catch (error) {
+      await order.deleteOne();
+      throw error;
+    }
+  } catch (error) {
+    console.error(error);
     res.status(500).json({
       success: false,
-      message: "An error occurred while creating the order!",
+      message: "An error occurred while initializing payment",
     });
   }
 };
 
-/**
- * Capture PayPal payment and finalize order
- */
-export const capturePaymentAndFinalizeOrder = async (
+export const verifyPaymentAndFinalizeOrder = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { paymentId, payerId, orderId } = req.body as CapturePaymentBody;
+    const { reference } = req.body as {
+      reference?: string;
+    };
+    const user = req.user as AuthenticatedUser | undefined;
+    const order = reference
+      ? await Order.findOne({ paymentReference: reference })
+      : null;
 
-    const order = await Order.findById(orderId);
-    if (!order) {
-      res.status(404).json({
+    if (!user?._id) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+    if (!order || order.userId !== user._id) {
+      res.status(404).json({ success: false, message: "Order not found" });
+      return;
+    }
+    const transaction = await verifyPaystackTransaction(reference!);
+    const expectedAmount = toSubunit(Number(order.coursePricing));
+    const expectedCurrency = process.env.PAYSTACK_CURRENCY || "NGN";
+
+    if (
+      transaction.status !== "success" ||
+      transaction.reference !== order.paymentReference ||
+      transaction.amount !== expectedAmount ||
+      transaction.currency !== expectedCurrency
+    ) {
+      res.status(400).json({
         success: false,
-        message: "Order not found!",
+        message: "Payment verification failed",
       });
       return;
     }
 
     order.paymentStatus = "paid";
     order.orderStatus = "confirmed";
-    order.paymentId = paymentId;
-    order.payerId = payerId;
     await order.save();
-
-    // Update StudentCourses collection
-    const studentCourses = await StudentCourses.findOne({
-      userId: order.userId,
-    });
 
     const purchasedCourse = {
       courseId: order.courseId,
@@ -184,19 +131,26 @@ export const capturePaymentAndFinalizeOrder = async (
       dateOfPurchase: order.orderDate,
       courseImage: order.courseImage,
     };
+    const studentCourses = await StudentCourses.findOne({
+      userId: order.userId,
+    });
 
     if (studentCourses) {
-      studentCourses.courses.push(purchasedCourse);
-      await studentCourses.save();
+      if (
+        !studentCourses.courses.some(
+          (course) => course.courseId === order.courseId
+        )
+      ) {
+        studentCourses.courses.push(purchasedCourse);
+        await studentCourses.save();
+      }
     } else {
-      const newStudentCourses = new StudentCourses({
+      await StudentCourses.create({
         userId: order.userId,
         courses: [purchasedCourse],
       });
-      await newStudentCourses.save();
     }
 
-    // Add student to Course
     await Course.findByIdAndUpdate(order.courseId, {
       $addToSet: {
         students: {
@@ -210,14 +164,14 @@ export const capturePaymentAndFinalizeOrder = async (
 
     res.status(200).json({
       success: true,
-      message: "Order confirmed and payment captured",
+      message: "Payment verified and order confirmed",
       data: order,
     });
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error(error);
     res.status(500).json({
       success: false,
-      message: "An error occurred while capturing payment!",
+      message: "An error occurred while verifying payment",
     });
   }
 };
