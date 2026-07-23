@@ -26,7 +26,9 @@ async function paystackRequest<T>(
   init?: RequestInit
 ): Promise<T> {
   const secretKey = process.env.PAYSTACK_SECRET_KEY;
-  if (!secretKey) throw new Error("PAYSTACK_SECRET_KEY is not configured");
+  if (!secretKey || secretKey.includes("replace_with")) {
+    throw new Error("PAYSTACK_SECRET_KEY is not configured");
+  }
 
   const response = await fetch(`${PAYSTACK_API_URL}${path}`, {
     ...init,

@@ -18,16 +18,21 @@ export const registerUser = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-
-  console.log("hit");
-  
   try {
-    const { userName, userEmail, password, role } = req.body as {
+    const { userName, userEmail, password } = req.body as {
       userName: string;
       userEmail: string;
       password: string;
-      role: string;
     };
+
+    if (!userName || !userEmail || !password || password.length < 6) {
+      res.status(400).json({
+        success: false,
+        message:
+          "User name, email, and a password of at least 6 characters are required",
+      });
+      return;
+    }
 
     const existingUser = await User.findOne({
       $or: [{ userEmail }, { userName }],
@@ -45,7 +50,7 @@ export const registerUser = async (
     const newUser = new User({
       userName,
       userEmail,
-      role,
+      role: "user",
       password: hashPassword,
     });
 
@@ -84,7 +89,8 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const secretKey = process.env.JWT_SECRET || "default_secret";
+    const secretKey = process.env.JWT_SECRET;
+    if (!secretKey) throw new Error("JWT_SECRET is not configured");
     const accessToken = jwt.sign(
       {
         _id: checkUser._id,
@@ -151,6 +157,10 @@ export const requestOtp = async (
         .json({ success: false, message: "userEmail is required" });
       return;
     }
+    if (!(await User.exists({ userEmail }))) {
+      res.status(404).json({ success: false, message: "User not found" });
+      return;
+    }
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     await OtpModel.findOneAndUpdate(
@@ -158,11 +168,16 @@ export const requestOtp = async (
       { userEmail, code, expiresAt },
       { upsert: true }
     );
-    await sendEmail({
-      to: userEmail,
-      subject: "Your verification code",
-      html: buildOtpEmailHtml(code),
-    });
+    try {
+      await sendEmail({
+        to: userEmail,
+        subject: "Your verification code",
+        html: buildOtpEmailHtml(code),
+      });
+    } catch (error) {
+      await OtpModel.deleteOne({ userEmail });
+      throw error;
+    }
     res.status(200).json({ success: true, message: "OTP sent" });
   } catch (e) {
     console.error(e);
@@ -173,6 +188,12 @@ export const requestOtp = async (
 export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userEmail, code } = req.body as { userEmail: string; code: string };
+    if (!userEmail || !code) {
+      res
+        .status(400)
+        .json({ success: false, message: "Email and code are required" });
+      return;
+    }
     const record = await OtpModel.findOne({ userEmail });
     if (!record || record.code !== code || record.expiresAt < new Date()) {
       res
@@ -181,7 +202,18 @@ export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
       return;
     }
     await OtpModel.deleteOne({ userEmail });
-    res.status(200).json({ success: true, message: "OTP verified" });
+    const token = crypto.randomBytes(24).toString("hex");
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    await ResetModel.findOneAndUpdate(
+      { userEmail },
+      { userEmail, token, expiresAt },
+      { upsert: true }
+    );
+    res.status(200).json({
+      success: true,
+      message: "OTP verified",
+      data: { token },
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ success: false, message: "Failed to verify OTP" });
@@ -253,6 +285,14 @@ export const resetPassword = async (
       token: string;
       newPassword: string;
     };
+    if (!userEmail || !token || !newPassword || newPassword.length < 6) {
+      res.status(400).json({
+        success: false,
+        message:
+          "Email, reset token, and a password of at least 6 characters are required",
+      });
+      return;
+    }
     const record = await ResetModel.findOne({ userEmail, token });
     if (!record || record.expiresAt < new Date()) {
       res

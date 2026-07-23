@@ -38,7 +38,9 @@ export async function sendEmail({
     emailOptions.text = text;
   }
 
-  return await resend.emails.send(emailOptions);
+  const result = await resend.emails.send(emailOptions);
+  if (result.error) throw new Error(result.error.message);
+  return result.data;
 }
 
 export function buildOtpEmailHtml(otp: string) {

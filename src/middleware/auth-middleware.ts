@@ -23,7 +23,6 @@ const authenticate = (
   next: NextFunction
 ): void => {
   const authHeader = req.headers.authorization;
-  console.log(authHeader, "authHeader");
 
   if (!authHeader) {
     res.status(401).json({
@@ -36,8 +35,14 @@ const authenticate = (
   const token = authHeader.split(" ")[1]!;
 
   try {
-    // Use environment variable for security
-    const secretKey = process.env.JWT_SECRET || "default_secret";
+    const secretKey = process.env.JWT_SECRET;
+    if (!secretKey) {
+      res.status(500).json({
+        success: false,
+        message: "JWT_SECRET is not configured",
+      });
+      return;
+    }
     const payload = verifyToken(token, secretKey);
 
     req.user = payload;

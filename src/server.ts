@@ -13,19 +13,15 @@ import studentCourseProgressRoutes from "./routes/student-routes/course-progress
 import bodyParser from "body-parser"
 
 const app = express();
-const PORT: number = parseInt(process.env.PORT || "5000", 10);
+const PORT: number = parseInt(process.env.PORT || "8000", 10);
 const MONGO_URI: string = process.env.MONGO_URI || "";
-
-const origin = [
-  "localhost:3000",
-  "http://localhost:3000",
-  "http://192.168.1.142:3000",
-];
-
+const clientOrigin = new URL(
+  process.env.APP_URL || "http://localhost:3000"
+).origin;
 
 app.use(
   cors({
-    origin,
+    origin: [clientOrigin, "http://localhost:3000"],
     credentials: true,
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
     allowedHeaders: [
@@ -42,11 +38,6 @@ app.use(express.json());
 app.use(bodyParser.json());
 
 // Database connection
-mongoose
-  .connect(MONGO_URI)
-  .then(() => console.log("MongoDB is connected"))
-  .catch((err) => console.error("MongoDB connection error:", err));
-
 // Routes configuration
 app.use("/auth", authRoutes);
 app.use("/media", mediaRoutes);
@@ -73,6 +64,15 @@ app.use("/student/course-progress", studentCourseProgressRoutes);
 //   }
 // );
 
-app.listen(PORT, () => {
-  console.log(`Server is now running on port ${PORT}`);
-});
+mongoose
+  .connect(MONGO_URI)
+  .then(() => {
+    console.log("MongoDB is connected");
+    app.listen(PORT, () => {
+      console.log(`Server is now running on port ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("MongoDB connection error:", error);
+    process.exitCode = 1;
+  });

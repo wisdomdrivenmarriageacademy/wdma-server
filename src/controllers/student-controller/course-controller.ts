@@ -23,8 +23,6 @@ export const getAllStudentViewCourses = async (
       sortBy?: string;
     };
 
-    console.log(req.query, "req.query");
-
     const filters: Record<string, any> = {};
     if (category) {
       filters.category = { $in: category.split(",") };
