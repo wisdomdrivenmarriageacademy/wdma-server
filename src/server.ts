@@ -10,7 +10,8 @@ import studentViewCourseRoutes from "./routes/student-routes/course-routes";
 import studentViewOrderRoutes from "./routes/student-routes/order-routes";
 import studentCoursesRoutes from "./routes/student-routes/student-courses-routes";
 import studentCourseProgressRoutes from "./routes/student-routes/course-progress-routes";
-import bodyParser from "body-parser"
+import adminUserRoutes from "./routes/admin-routes/user-routes";
+import adminDashboardRoutes from "./routes/admin-routes/dashboard-routes";
 
 const app = express();
 const PORT: number = parseInt(process.env.PORT || "8000", 10);
@@ -35,7 +36,6 @@ app.use(
 );
 
 app.use(express.json());
-app.use(bodyParser.json());
 
 // Database connection
 // Routes configuration
@@ -46,6 +46,8 @@ app.use("/student/course", studentViewCourseRoutes);
 app.use("/student/order", studentViewOrderRoutes);
 app.use("/student/courses-bought", studentCoursesRoutes);
 app.use("/student/course-progress", studentCourseProgressRoutes);
+app.use("/admin/users", adminUserRoutes);
+app.use("/admin", adminDashboardRoutes);
 
 
 // Error handler middleware

@@ -56,3 +56,22 @@ const authenticate = (
 };
 
 export default authenticate;
+
+export const authorizeRoles =
+  (...roles: string[]) =>
+  (req: Request, res: Response, next: NextFunction): void => {
+    const role =
+      typeof req.user === "object" && req.user
+        ? (req.user as JwtPayload).role
+        : undefined;
+
+    if (!role || !roles.includes(role)) {
+      res.status(403).json({
+        success: false,
+        message: "You do not have permission to perform this action",
+      });
+      return;
+    }
+
+    next();
+  };

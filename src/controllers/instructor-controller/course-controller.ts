@@ -1,6 +1,11 @@
 // src/controllers/instructor-controller/course-controller.ts
 import { Request, Response } from "express";
 import Course, { ICourse } from "../../models/Course";
+import { JwtPayload } from "jsonwebtoken";
+
+function currentUser(req: Request): JwtPayload {
+  return req.user as JwtPayload;
+}
 
 // ----------------------
 // Add New Course
@@ -10,7 +15,12 @@ export const addNewCourse = async (
   res: Response
 ): Promise<void> => {
   try {
-    const courseData = req.body as Partial<ICourse>;
+    const user = currentUser(req);
+    const courseData = {
+      ...(req.body as Partial<ICourse>),
+      instructorId: String(user._id),
+      instructorName: String(user.userName),
+    };
     const newlyCreatedCourse = new Course(courseData);
     const savedCourse = await newlyCreatedCourse.save();
 
@@ -32,11 +42,14 @@ export const addNewCourse = async (
 // Get All Courses
 // ----------------------
 export const getAllCourses = async (
-  _req: Request,
+  req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const coursesList = await Course.find({});
+    const user = currentUser(req);
+    const coursesList = await Course.find(
+      user.role === "instructor" ? { instructorId: String(user._id) } : {}
+    ).sort({ date: -1 });
 
     res.status(200).json({
       success: true,
@@ -61,8 +74,13 @@ export const getCourseDetailsByID = async (
   try {
     const { id } = req.params;
     const courseDetails = await Course.findById(id);
+    const user = currentUser(req);
 
-    if (!courseDetails) {
+    if (
+      !courseDetails ||
+      (user.role === "instructor" &&
+        courseDetails.instructorId !== String(user._id))
+    ) {
       res.status(404).json({
         success: false,
         message: "Course not found!",
@@ -92,10 +110,23 @@ export const updateCourseByID = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const updatedCourseData = req.body as Partial<ICourse>;
+    const user = currentUser(req);
+    const updatedCourseData: Partial<ICourse> = {
+      ...(req.body as Partial<ICourse>),
+    };
+
+    if (user.role === "instructor") {
+      updatedCourseData.instructorId = String(user._id);
+      updatedCourseData.instructorName = String(user.userName);
+    } else {
+      delete updatedCourseData.instructorId;
+      delete updatedCourseData.instructorName;
+    }
 
     const updatedCourse = await Course.findByIdAndUpdate(
-      id,
+      user.role === "instructor"
+        ? { _id: id, instructorId: String(user._id) }
+        : id,
       updatedCourseData,
       { new: true }
     );

@@ -5,8 +5,12 @@ import {
   uploadMediaToCloudinary,
   deleteMediaFromCloudinary,
 } from "../../helpers/cloudinary";
+import authenticate, {
+  authorizeRoles,
+} from "../../middleware/auth-middleware";
 
 const router = Router();
+router.use(authenticate, authorizeRoles("admin", "instructor"));
 
 // Configure Multer
 const upload = multer({ dest: "uploads/" });

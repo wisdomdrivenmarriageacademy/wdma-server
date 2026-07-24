@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import CourseProgress, { ICourseProgress } from "../../models/CourseProgress";
 import Course, { ICourse } from "../../models/Course";
 import StudentCourses, { IStudentCourses } from "../../models/StudentCourses";
+import { JwtPayload } from "jsonwebtoken";
 
 // ----------------------
 // Mark Current Lecture As Viewed
@@ -12,11 +13,12 @@ export const markCurrentLectureAsViewed = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { userId, courseId, lectureId } = req.body as {
+    const { courseId, lectureId } = req.body as {
       userId: string;
       courseId: string;
       lectureId: string;
     };
+    const userId = String((req.user as JwtPayload)._id);
 
     let progress = await CourseProgress.findOne({ userId, courseId });
     if (!progress) {
@@ -92,7 +94,8 @@ export const getCurrentCourseProgress = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { userId, courseId } = req.params;
+    const { courseId } = req.params;
+    const userId = String((req.user as JwtPayload)._id);
 
     const studentPurchasedCourses: IStudentCourses | null =
       await StudentCourses.findOne({ userId });
@@ -168,10 +171,11 @@ export const resetCurrentCourseProgress = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { userId, courseId } = req.body as {
+    const { courseId } = req.body as {
       userId: string;
       courseId: string;
     };
+    const userId = String((req.user as JwtPayload)._id);
 
     const progress = await CourseProgress.findOne({ userId, courseId });
 

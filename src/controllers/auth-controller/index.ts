@@ -97,6 +97,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
         userName: checkUser.userName,
         userEmail: checkUser.userEmail,
         role: checkUser.role,
+        profileImage: checkUser.profileImage,
       },
       secretKey,
       { expiresIn: "120m" }
@@ -112,6 +113,8 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
           userName: checkUser.userName,
           userEmail: checkUser.userEmail,
           role: checkUser.role,
+          profileImage: checkUser.profileImage,
+          preferences: checkUser.preferences,
         },
       },
     });
@@ -121,6 +124,173 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
       success: false,
       message: "Internal server error during login",
     });
+  }
+};
+
+const publicUserFields =
+  "_id userName userEmail role profileImage preferences";
+
+export const getSettings = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const user = await User.findById((req.user as jwt.JwtPayload)._id).select(
+      publicUserFields
+    );
+    if (!user) {
+      res.status(404).json({ success: false, message: "User not found" });
+      return;
+    }
+    res.status(200).json({ success: true, data: { user } });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Unable to load settings" });
+  }
+};
+
+export const updateSettings = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const user = await User.findById((req.user as jwt.JwtPayload)._id);
+    if (!user) {
+      res.status(404).json({ success: false, message: "User not found" });
+      return;
+    }
+
+    const {
+      userName,
+      userEmail,
+      profileImage,
+      theme,
+      emailNotifications,
+      announcements,
+      roleActivity,
+      secondaryRoleActivity,
+      profileVisible,
+      currentPassword,
+      newPassword,
+    } = req.body as Record<string, unknown>;
+
+    if (typeof userName === "string") {
+      const value = userName.trim();
+      if (value.length < 2 || value.length > 80) {
+        res.status(400).json({
+          success: false,
+          message: "Name must be between 2 and 80 characters",
+        });
+        return;
+      }
+      user.userName = value;
+    }
+
+    if (typeof userEmail === "string") {
+      const value = userEmail.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        res.status(400).json({
+          success: false,
+          message: "Enter a valid email address",
+        });
+        return;
+      }
+      user.userEmail = value;
+    }
+
+    if (typeof profileImage === "string") {
+      const value = profileImage.trim();
+      if (value.length > 2048) {
+        res.status(400).json({
+          success: false,
+          message: "Profile image URL is too long",
+        });
+        return;
+      }
+      if (value) {
+        try {
+          const url = new URL(value);
+          if (!["http:", "https:"].includes(url.protocol)) throw new Error();
+        } catch {
+          res.status(400).json({
+            success: false,
+            message: "Profile image must be a valid web address",
+          });
+          return;
+        }
+      }
+      user.profileImage = value;
+    }
+
+    if (
+      typeof theme === "string" &&
+      !["system", "light", "dark"].includes(theme)
+    ) {
+      res.status(400).json({ success: false, message: "Invalid theme" });
+      return;
+    }
+    if (typeof theme === "string") {
+      user.preferences.theme = theme as "system" | "light" | "dark";
+    }
+
+    const booleanPreferences = {
+      emailNotifications,
+      announcements,
+      roleActivity,
+      secondaryRoleActivity,
+      profileVisible,
+    };
+    for (const [key, value] of Object.entries(booleanPreferences)) {
+      if (typeof value === "boolean") {
+        Object.assign(user.preferences, { [key]: value });
+      }
+    }
+
+    if (currentPassword !== undefined || newPassword !== undefined) {
+      if (
+        typeof currentPassword !== "string" ||
+        typeof newPassword !== "string" ||
+        newPassword.length < 6
+      ) {
+        res.status(400).json({
+          success: false,
+          message:
+            "Current password and a new password of at least 6 characters are required",
+        });
+        return;
+      }
+      if (!(await bcrypt.compare(currentPassword, user.password))) {
+        res.status(400).json({
+          success: false,
+          message: "Current password is incorrect",
+        });
+        return;
+      }
+      user.password = await bcrypt.hash(newPassword, 10);
+    }
+
+    await user.save();
+    const updatedUser = await User.findById(user._id).select(publicUserFields);
+    res.status(200).json({
+      success: true,
+      message: "Settings saved",
+      data: { user: updatedUser },
+    });
+  } catch (error: unknown) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === 11000
+    ) {
+      res.status(409).json({
+        success: false,
+        message: "That name or email is already in use",
+      });
+      return;
+    }
+    console.error(error);
+    res.status(500).json({ success: false, message: "Unable to save settings" });
   }
 };
 

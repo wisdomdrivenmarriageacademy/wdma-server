@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import Course, { ICourse } from "../../models/Course";
 import StudentCourses, { IStudentCourses } from "../../models/StudentCourses";
+import { JwtPayload } from "jsonwebtoken";
 
 // ----------------------
 // Get All Student View Courses
@@ -109,7 +110,8 @@ export const checkCoursePurchaseInfo = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { id, studentId } = req.params;
+    const { id } = req.params;
+    const studentId = String((req.user as JwtPayload)._id);
 
     const studentCourses: IStudentCourses | null = await StudentCourses.findOne(
       {

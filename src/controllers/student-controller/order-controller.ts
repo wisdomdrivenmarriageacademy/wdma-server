@@ -58,7 +58,7 @@ export const createOrder = async (
         email: user.userEmail,
         amount: toSubunit(course.pricing),
         reference: paymentReference,
-        callbackUrl: `${process.env.CLIENT_URL}/payment-return`,
+        callbackUrl: `${process.env.CLIENT_URL}/student/payment-return`,
         currency,
       });
 

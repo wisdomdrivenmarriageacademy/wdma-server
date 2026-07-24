@@ -1,17 +1,14 @@
 // src/controllers/student/student-courses-controller.ts
 import { Request, Response } from "express";
 import StudentCourses, { IStudentCourses } from "../../models/StudentCourses";
-
-interface GetCoursesByStudentIdParams {
-  studentId: string;
-}
+import { JwtPayload } from "jsonwebtoken";
 
 export const getCoursesByStudentId = async (
-  req: Request<GetCoursesByStudentIdParams>,
+  req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { studentId } = req.params;
+    const studentId = String((req.user as JwtPayload)._id);
 
     const studentBoughtCourses = await StudentCourses.findOne({
       userId: studentId,
