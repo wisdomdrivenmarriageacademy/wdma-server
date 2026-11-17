@@ -37,7 +37,10 @@ router.post(
       });
     } catch (e) {
       console.error(e);
-      res.status(500).json({ success: false, message: "Error uploading file" });
+      res.status(500).json({
+        success: false,
+        message: e instanceof Error ? e.message : "Error uploading file",
+      });
     }
   }
 );
@@ -97,9 +100,10 @@ router.post(
       });
     } catch (e) {
       console.error(e);
-      res
-        .status(500)
-        .json({ success: false, message: "Error in bulk uploading files" });
+      res.status(500).json({
+        success: false,
+        message: e instanceof Error ? e.message : "Error in bulk uploading files",
+      });
     }
   }
 );

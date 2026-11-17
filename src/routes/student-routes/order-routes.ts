@@ -4,11 +4,14 @@ import {
   createOrder,
   verifyPaymentAndFinalizeOrder,
 } from "../../controllers/student-controller/order-controller";
-import authenticate from "../../middleware/auth-middleware";
+import authenticate, {
+  authorizeRoles,
+} from "../../middleware/auth-middleware";
 
 const router = Router();
 
-router.post("/create", authenticate, createOrder);
-router.post("/verify", authenticate, verifyPaymentAndFinalizeOrder);
+router.use(authenticate, authorizeRoles("user"));
+router.post("/create", createOrder);
+router.post("/verify", verifyPaymentAndFinalizeOrder);
 
 export default router;

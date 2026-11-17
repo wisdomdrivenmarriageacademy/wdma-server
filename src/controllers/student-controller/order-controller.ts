@@ -8,7 +8,7 @@ import {
 } from "../../helpers/paystack";
 import Order from "../../models/Order";
 import Course from "../../models/Course";
-import StudentCourses from "../../models/StudentCourses";
+import { enrollFromOrder, isEnrolled } from "../../helpers/enrollment";
 
 type AuthenticatedUser = JwtPayload & {
   _id: string;
@@ -29,20 +29,28 @@ export const createOrder = async (
       res.status(401).json({ success: false, message: "Unauthorized" });
       return;
     }
-    if (!course) {
+    if (!course || !course.isPublised) {
       res.status(404).json({ success: false, message: "Course not found" });
       return;
     }
+    if (await isEnrolled(String(user._id), course.id)) {
+      res.status(409).json({
+        success: false,
+        message: "You are already enrolled in this course",
+      });
+      return;
+    }
 
+    const isFree = !(Number(course.pricing) > 0);
     const currency = process.env.PAYSTACK_CURRENCY || "NGN";
     const paymentReference = `wdma-${randomUUID()}`;
     const order = await Order.create({
       userId: user._id,
       userName: user.userName,
       userEmail: user.userEmail,
-      orderStatus: "pending",
-      paymentMethod: "paystack",
-      paymentStatus: "initiated",
+      orderStatus: isFree ? "confirmed" : "pending",
+      paymentMethod: isFree ? "free" : "paystack",
+      paymentStatus: isFree ? "paid" : "initiated",
       orderDate: new Date(),
       paymentReference,
       instructorId: course.instructorId,
@@ -50,8 +58,18 @@ export const createOrder = async (
       courseImage: course.image,
       courseTitle: course.title,
       courseId: course.id,
-      coursePricing: course.pricing,
+      coursePricing: String(course.pricing),
     });
+
+    if (isFree) {
+      await enrollFromOrder(order);
+      res.status(201).json({
+        success: true,
+        message: "Enrolled successfully",
+        data: { enrolled: true, courseId: course.id },
+      });
+      return;
+    }
 
     try {
       const transaction = await initializePaystackTransaction({
@@ -74,9 +92,13 @@ export const createOrder = async (
     }
   } catch (error) {
     console.error(error);
-    res.status(500).json({
+    const notConfigured =
+      error instanceof Error && error.message.includes("not configured");
+    res.status(notConfigured ? 503 : 500).json({
       success: false,
-      message: "An error occurred while initializing payment",
+      message: notConfigured
+        ? "Online payment is not available right now. Please contact support."
+        : "An error occurred while initializing payment",
     });
   }
 };
@@ -98,14 +120,28 @@ export const verifyPaymentAndFinalizeOrder = async (
       res.status(401).json({ success: false, message: "Unauthorized" });
       return;
     }
-    if (!order || order.userId !== user._id) {
+    if (!order || order.userId !== String(user._id)) {
       res.status(404).json({ success: false, message: "Order not found" });
+      return;
+    }
+    if (order.paymentStatus === "paid") {
+      // Return page reloaded, or a second verify — access was already granted.
+      await enrollFromOrder(order);
+      res.status(200).json({
+        success: true,
+        message: "Payment already confirmed",
+        data: order,
+      });
       return;
     }
     const transaction = await verifyPaystackTransaction(reference!);
     const expectedAmount = toSubunit(Number(order.coursePricing));
     const expectedCurrency = process.env.PAYSTACK_CURRENCY || "NGN";
 
+    if (transaction.status !== "success") {
+      order.paymentStatus = transaction.status || "failed";
+      await order.save();
+    }
     if (
       transaction.status !== "success" ||
       transaction.reference !== order.paymentReference ||
@@ -123,44 +159,7 @@ export const verifyPaymentAndFinalizeOrder = async (
     order.orderStatus = "confirmed";
     await order.save();
 
-    const purchasedCourse = {
-      courseId: order.courseId,
-      title: order.courseTitle,
-      instructorId: order.instructorId,
-      instructorName: order.instructorName,
-      dateOfPurchase: order.orderDate,
-      courseImage: order.courseImage,
-    };
-    const studentCourses = await StudentCourses.findOne({
-      userId: order.userId,
-    });
-
-    if (studentCourses) {
-      if (
-        !studentCourses.courses.some(
-          (course) => course.courseId === order.courseId
-        )
-      ) {
-        studentCourses.courses.push(purchasedCourse);
-        await studentCourses.save();
-      }
-    } else {
-      await StudentCourses.create({
-        userId: order.userId,
-        courses: [purchasedCourse],
-      });
-    }
-
-    await Course.findByIdAndUpdate(order.courseId, {
-      $addToSet: {
-        students: {
-          studentId: order.userId,
-          studentName: order.userName,
-          studentEmail: order.userEmail,
-          paidAmount: order.coursePricing,
-        },
-      },
-    });
+    await enrollFromOrder(order);
 
     res.status(200).json({
       success: true,

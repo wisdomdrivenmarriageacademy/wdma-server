@@ -9,6 +9,11 @@ import {
   sendEmail,
 } from "../../helpers/email";
 import crypto from "crypto";
+import {
+  findOrCreateGoogleUser,
+  GoogleAuthError,
+  verifyGoogleCredential,
+} from "../../helpers/google-auth";
 import mongoose, { Document, Model, Schema } from "mongoose";
 
 // ----------------------
@@ -19,11 +24,15 @@ export const registerUser = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { userName, userEmail, password } = req.body as {
-      userName: string;
-      userEmail: string;
-      password: string;
-    };
+    const { userName: rawName, userEmail: rawEmail, password } =
+      req.body as {
+        userName: string;
+        userEmail: string;
+        password: string;
+      };
+    const userName = typeof rawName === "string" ? rawName.trim() : "";
+    const userEmail =
+      typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
 
     if (!userName || !userEmail || !password || password.length < 6) {
       res.status(400).json({
@@ -69,6 +78,71 @@ export const registerUser = async (
   }
 };
 
+// Issues the access token and user payload the client stores after sign-in.
+function sendSession(res: Response, user: IUser) {
+  const secretKey = process.env.JWT_SECRET;
+  if (!secretKey) throw new Error("JWT_SECRET is not configured");
+  const accessToken = jwt.sign(
+    {
+      _id: user._id,
+      userName: user.userName,
+      userEmail: user.userEmail,
+      role: user.role,
+      profileImage: user.profileImage,
+    },
+    secretKey,
+    { expiresIn: "120m" }
+  );
+
+  res.status(200).json({
+    success: true,
+    message: "Logged in successfully",
+    data: {
+      accessToken,
+      user: {
+        _id: user._id,
+        userName: user.userName,
+        userEmail: user.userEmail,
+        role: user.role,
+        profileImage: user.profileImage,
+        preferences: user.preferences,
+      },
+    },
+  });
+}
+
+// ----------------------
+// Google Sign-In
+// ----------------------
+export const googleLogin = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { credential } = (req.body ?? {}) as { credential?: unknown };
+    if (typeof credential !== "string" || !credential) {
+      res.status(400).json({
+        success: false,
+        message: "Google credential is required",
+      });
+      return;
+    }
+    const profile = await verifyGoogleCredential(credential);
+    const user = await findOrCreateGoogleUser(profile);
+    sendSession(res, user);
+  } catch (error) {
+    if (error instanceof GoogleAuthError) {
+      res.status(error.status).json({ success: false, message: error.message });
+      return;
+    }
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Google sign-in failed. Please try again.",
+    });
+  }
+};
+
 // ----------------------
 // Login User
 // ----------------------
@@ -79,9 +153,17 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
       password: string;
     };
 
-    const checkUser = await User.findOne({ userEmail });
+    const email = typeof userEmail === "string" ? userEmail.trim() : "";
+    // Older accounts may have been stored with mixed-case emails.
+    const checkUser = email
+      ? await User.findOne({ userEmail: { $in: [email, email.toLowerCase()] } })
+      : null;
 
-    if (!checkUser || !(await bcrypt.compare(password, checkUser.password))) {
+    if (
+      !checkUser ||
+      typeof password !== "string" ||
+      !(await bcrypt.compare(password, checkUser.password))
+    ) {
       res.status(401).json({
         success: false,
         message: "Invalid credentials",
@@ -89,35 +171,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const secretKey = process.env.JWT_SECRET;
-    if (!secretKey) throw new Error("JWT_SECRET is not configured");
-    const accessToken = jwt.sign(
-      {
-        _id: checkUser._id,
-        userName: checkUser.userName,
-        userEmail: checkUser.userEmail,
-        role: checkUser.role,
-        profileImage: checkUser.profileImage,
-      },
-      secretKey,
-      { expiresIn: "120m" }
-    );
-
-    res.status(200).json({
-      success: true,
-      message: "Logged in successfully",
-      data: {
-        accessToken,
-        user: {
-          _id: checkUser._id,
-          userName: checkUser.userName,
-          userEmail: checkUser.userEmail,
-          role: checkUser.role,
-          profileImage: checkUser.profileImage,
-          preferences: checkUser.preferences,
-        },
-      },
-    });
+    sendSession(res, checkUser);
   } catch (error) {
     console.error(error);
     res.status(500).json({
@@ -427,8 +481,8 @@ export const requestPasswordReset = async (
       { userEmail, token, expiresAt },
       { upsert: true }
     );
-    const appUrl = process.env.APP_URL || "http://localhost:3000";
-    const link = `${appUrl}/auth/reset-password?token=${token}&email=${encodeURIComponent(userEmail)}`;
+    const appUrl = process.env.APP_URL || "http://localhost:3001";
+    const link = `${appUrl}/reset-password?token=${token}&email=${encodeURIComponent(userEmail)}`;
     await sendEmail({
       to: userEmail,
       subject: "Reset your password",

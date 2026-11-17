@@ -1,10 +1,61 @@
 // src/controllers/instructor-controller/course-controller.ts
 import { Request, Response } from "express";
-import Course, { ICourse } from "../../models/Course";
+import Course from "../../models/Course";
+import { isValidObjectId } from "mongoose";
 import { JwtPayload } from "jsonwebtoken";
 
 function currentUser(req: Request): JwtPayload {
   return req.user as JwtPayload;
+}
+
+// Fields an author may set from the course form. Enrolled students, ownership
+// and the creation date are managed by the server; publication is managed by
+// admins via /admin/courses/:id/publication once a course exists.
+const editableFields = [
+  "title",
+  "category",
+  "level",
+  "primaryLanguage",
+  "subtitle",
+  "description",
+  "image",
+  "welcomeMessage",
+  "pricing",
+  "objectives",
+  "curriculum",
+] as const;
+
+function pickEditable(body: Record<string, unknown>) {
+  const data: Record<string, unknown> = {};
+  for (const key of editableFields) {
+    if (body[key] !== undefined) data[key] = body[key];
+  }
+  if (data.pricing !== undefined) {
+    const pricing = Number(data.pricing);
+    if (!Number.isFinite(pricing) || pricing < 0) {
+      throw new ValidationError("Pricing must be zero or a positive number");
+    }
+    data.pricing = pricing;
+  }
+  if (data.curriculum !== undefined && !Array.isArray(data.curriculum)) {
+    throw new ValidationError("Curriculum must be a list of lessons");
+  }
+  return data;
+}
+
+class ValidationError extends Error {}
+
+function sendError(res: Response, error: unknown, fallback: string) {
+  if (
+    error instanceof ValidationError ||
+    (error instanceof Error && error.name === "ValidationError") ||
+    (error instanceof Error && error.name === "CastError")
+  ) {
+    res.status(400).json({ success: false, message: error.message });
+    return;
+  }
+  console.error(error);
+  res.status(500).json({ success: false, message: fallback });
 }
 
 // ----------------------
@@ -17,7 +68,8 @@ export const addNewCourse = async (
   try {
     const user = currentUser(req);
     const courseData = {
-      ...(req.body as Partial<ICourse>),
+      ...pickEditable(req.body ?? {}),
+      isPublised: req.body?.isPublised !== false,
       instructorId: String(user._id),
       instructorName: String(user.userName),
     };
@@ -30,11 +82,7 @@ export const addNewCourse = async (
       data: savedCourse,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Some error occurred while saving course!",
-    });
+    sendError(res, error, "Some error occurred while saving course!");
   }
 };
 
@@ -73,7 +121,7 @@ export const getCourseDetailsByID = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const courseDetails = await Course.findById(id);
+    const courseDetails = isValidObjectId(id) ? await Course.findById(id) : null;
     const user = currentUser(req);
 
     if (
@@ -111,24 +159,14 @@ export const updateCourseByID = async (
   try {
     const { id } = req.params;
     const user = currentUser(req);
-    const updatedCourseData: Partial<ICourse> = {
-      ...(req.body as Partial<ICourse>),
-    };
-
-    if (user.role === "instructor") {
-      updatedCourseData.instructorId = String(user._id);
-      updatedCourseData.instructorName = String(user.userName);
-    } else {
-      delete updatedCourseData.instructorId;
-      delete updatedCourseData.instructorName;
-    }
+    const updatedCourseData = pickEditable(req.body ?? {});
 
     const updatedCourse = await Course.findByIdAndUpdate(
       user.role === "instructor"
         ? { _id: id, instructorId: String(user._id) }
         : id,
       updatedCourseData,
-      { new: true }
+      { new: true, runValidators: true }
     );
 
     if (!updatedCourse) {
@@ -145,10 +183,6 @@ export const updateCourseByID = async (
       data: updatedCourse,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Some error occurred while updating course!",
-    });
+    sendError(res, error, "Some error occurred while updating course!");
   }
 };

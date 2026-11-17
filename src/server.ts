@@ -17,12 +17,12 @@ const app = express();
 const PORT: number = parseInt(process.env.PORT || "8000", 10);
 const MONGO_URI: string = process.env.MONGO_URI || "";
 const clientOrigin = new URL(
-  process.env.APP_URL || "http://localhost:3000"
+  process.env.APP_URL || "http://localhost:3001"
 ).origin;
 
 app.use(
   cors({
-    origin: [clientOrigin, "http://localhost:3000"],
+    origin: [clientOrigin, "http://localhost:3001"],
     credentials: true,
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
     allowedHeaders: [
@@ -37,8 +37,10 @@ app.use(
 
 app.use(express.json());
 
-// Database connection
-// Routes configuration
+app.get("/health", (_req, res) => {
+  res.json({ success: true, db: mongoose.connection.readyState === 1 });
+});
+
 app.use("/auth", authRoutes);
 app.use("/media", mediaRoutes);
 app.use("/instructor/course", instructorCourseRoutes);
@@ -50,21 +52,24 @@ app.use("/admin/users", adminUserRoutes);
 app.use("/admin", adminDashboardRoutes);
 
 
-// Error handler middleware
-// app.use(
-//   (
-//     err: Error,
-//     req: Request,
-//     res: Response,
-//     next: NextFunction // eslint-disable-line @typescript-eslint/no-unused-vars
-//   ) => {
-//     console.error(err.stack);
-//     res.status(500).json({
-//       success: false,
-//       message: "Something went wrong",
-//     });
-//   }
-// );
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ success: false, message: "Route not found" });
+});
+
+// Malformed JSON, oversized uploads, and anything a route forgot to catch.
+type RequestError = { type?: string; name?: string; message?: string };
+
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  const info: RequestError =
+    typeof err === "object" && err !== null ? (err as RequestError) : {};
+  const status =
+    info.type === "entity.parse.failed" || info.name === "MulterError" ? 400 : 500;
+  if (status === 500) console.error(err);
+  res.status(status).json({
+    success: false,
+    message: status === 400 ? info.message || "Bad request" : "Something went wrong",
+  });
+});
 
 mongoose
   .connect(MONGO_URI)

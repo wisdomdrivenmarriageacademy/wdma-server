@@ -3,6 +3,22 @@ import { Request, Response } from "express";
 import Course, { ICourse } from "../../models/Course";
 import StudentCourses, { IStudentCourses } from "../../models/StudentCourses";
 import { JwtPayload } from "jsonwebtoken";
+import { isValidObjectId, type FilterQuery } from "mongoose";
+
+// What anyone browsing the catalogue may see: no student emails and no video
+// links for lessons that are not free previews.
+function toPublicCourse(course: ICourse) {
+  const { students = [], curriculum = [], ...rest } = course.toObject();
+  return {
+    ...rest,
+    studentsCount: students.length,
+    curriculum: curriculum.map((lecture: Record<string, unknown>) =>
+      lecture.freePreview
+        ? lecture
+        : { _id: lecture._id, title: lecture.title, freePreview: false }
+    ),
+  };
+}
 
 // ----------------------
 // Get All Student View Courses
@@ -24,7 +40,7 @@ export const getAllStudentViewCourses = async (
       sortBy?: string;
     };
 
-    const filters: Record<string, any> = {};
+    const filters: FilterQuery<ICourse> = { isPublised: true };
     if (category) {
       filters.category = { $in: category.split(",") };
     }
@@ -58,7 +74,7 @@ export const getAllStudentViewCourses = async (
 
     res.status(200).json({
       success: true,
-      data: coursesList,
+      data: coursesList.map(toPublicCourse),
     });
   } catch (error) {
     console.error(error);
@@ -78,7 +94,9 @@ export const getStudentViewCourseDetails = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const courseDetails = await Course.findById(id);
+    const courseDetails = isValidObjectId(id)
+      ? await Course.findOne({ _id: id, isPublised: true })
+      : null;
 
     if (!courseDetails) {
       res.status(404).json({
@@ -91,7 +109,7 @@ export const getStudentViewCourseDetails = async (
 
     res.status(200).json({
       success: true,
-      data: courseDetails,
+      data: toPublicCourse(courseDetails),
     });
   } catch (error) {
     console.error(error);

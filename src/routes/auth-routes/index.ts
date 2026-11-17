@@ -3,6 +3,7 @@ import { Router, Request, Response } from "express";
 import {
   registerUser,
   loginUser,
+  googleLogin,
   requestOtp,
   verifyOtp,
   requestPasswordReset,
@@ -18,6 +19,7 @@ const router = Router();
 
 router.post("/register", registerUser);
 router.post("/login", loginUser);
+router.post("/google", googleLogin);
 router.post("/request-otp", requestOtp);
 router.post("/verify-otp", verifyOtp);
 router.post("/request-password-reset", requestPasswordReset);

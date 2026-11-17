@@ -1,9 +1,15 @@
-import { Resend } from "resend"
+import { Resend, type CreateEmailOptions } from "resend"
 import dotenv from "dotenv"
 dotenv.config();
 
-const resendApiKey = process.env.RESEND_API_KEY || "";
-export const resend = new Resend(resendApiKey);
+// Created on first use: `new Resend("")` throws, which would crash the whole
+// API at boot when email isn't configured yet.
+let resend: Resend | null = null;
+function getResend() {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error("Email (RESEND_API_KEY) is not configured");
+  return (resend ??= new Resend(apiKey));
+}
 
 type SendEmailParams = {
   to: string;
@@ -24,21 +30,12 @@ export async function sendEmail({
     from || process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
 
   // Build the email options object, only including defined properties
-  const emailOptions: any = {
-    from: fromAddress,
-    to,
-    subject,
-  };
+  // Resend needs html or text; only send the ones provided.
+  const emailOptions: CreateEmailOptions = html
+    ? { from: fromAddress, to, subject, html, ...(text ? { text } : {}) }
+    : { from: fromAddress, to, subject, text: text ?? "" };
 
-  if (html) {
-    emailOptions.html = html;
-  }
-
-  if (text) {
-    emailOptions.text = text;
-  }
-
-  const result = await resend.emails.send(emailOptions);
+  const result = await getResend().emails.send(emailOptions);
   if (result.error) throw new Error(result.error.message);
   return result.data;
 }

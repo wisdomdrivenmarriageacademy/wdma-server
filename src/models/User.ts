@@ -10,6 +10,7 @@ export interface IUser extends Document {
   password: string;
   role: string;
   profileImage?: string;
+  googleId?: string;
   preferences: {
     theme: "system" | "light" | "dark";
     emailNotifications: boolean;
@@ -29,6 +30,7 @@ const UserSchema = new Schema<IUser>({
   password: { type: String, required: true },
   role: { type: String, required: true },
   profileImage: { type: String, default: "" },
+  googleId: { type: String, unique: true, sparse: true },
   preferences: {
     theme: {
       type: String,
